@@ -1,0 +1,130 @@
+# C++ Daily Digest Bot
+
+C++ 관련 RSS 피드를 매일 수집하여 Discord 채널로 한국어 요약을 전송하는 봇입니다.
+
+## 주요 기능
+
+- **RSS 피드 수집**: 12개의 C++ 관련 블로그 및 커뮤니티 피드
+- **AI 번역/요약**: LLM을 활용한 한국어 번역 및 요약 (C++ 전문 용어 처리)
+- **코드 분석**: 기사 내 C++ 코드 자동 추출 및 분석
+- **자동 실행**: GitHub Actions로 매일 오전 9시(KST) 자동 전송
+- **중복 방지**: 이미 전송한 기사는 다시 전송하지 않음
+
+## 지원 LLM 프로바이더
+
+| 프로바이더 | 모델 예시 | 비고 |
+|------------|-----------|------|
+| OpenAI | `gpt-4o`, `gpt-4o-mini` | 안정적, 범용 |
+| Anthropic | `claude-sonnet-4-20250514` | C++ 이해도 높음 |
+| Google | `gemini-2.0-flash-exp` | 무료 티어 있음 |
+| OpenRouter | 다양한 모델 | 여러 모델 통합 |
+| Ollama | `llama3`, `mistral` | 무료, 로컬 전용 |
+
+## 설치 및 실행
+
+### 1. 의존성 설치
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### 2. 환경 변수 설정
+
+`.env.example`을 `.env`로 복사하고 값을 설정합니다:
+
+```bash
+cp .env.example .env
+```
+
+```env
+# 필수
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/xxxxx/yyyyy
+
+# LLM API 키 (프로바이더에 따라 선택)
+GOOGLE_API_KEY=your_api_key
+# 또는
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### 3. LLM 프로바이더 설정
+
+`config.yaml`에서 사용할 LLM 프로바이더를 설정합니다:
+
+```yaml
+llm:
+  enabled: true
+  provider: google  # openai | anthropic | google | openrouter | ollama
+  model: gemini-2.0-flash-exp
+```
+
+### 4. 로컬 실행
+
+```bash
+python daily_digest.py
+```
+
+## GitHub Actions 설정
+
+### 1. Repository Secrets 설정
+
+GitHub 저장소 → Settings → Secrets and variables → Actions에서 설정:
+
+| Secret 이름 | 설명 |
+|-------------|------|
+| `DISCORD_WEBHOOK_URL` | Discord 웹훅 URL |
+| `GOOGLE_API_KEY` | Google Gemini API 키 (또는 다른 LLM 키) |
+
+### 2. 수동 실행
+
+Actions 탭 → C++ Daily Digest → Run workflow
+
+### 3. 자동 실행
+
+매일 오전 9시(KST)에 자동 실행됩니다.
+
+## 프로젝트 구조
+
+```
+├── daily_digest.py          # 메인 실행 파일
+├── llm_client.py            # LLM API 클라이언트
+├── code_analyzer.py         # C++ 코드 추출/분석
+├── config.yaml              # 설정 파일 (피드, LLM, Discord)
+├── requirements.txt         # Python 의존성
+├── prompts/
+│   ├── system.txt           # 시스템 프롬프트
+│   ├── translate_summarize.txt  # 번역/요약 프롬프트
+│   └── code_analysis.txt    # 코드 분석 프롬프트
+└── .github/workflows/
+    └── daily-digest.yml     # GitHub Actions 워크플로우
+```
+
+## RSS 피드 목록
+
+| 카테고리 | 피드 |
+|----------|------|
+| 공식 | ISO C++, Herb Sutter, Microsoft C++ Team, Barry Revzin |
+| 블로그 | C++ Stories, Modernes C++, Fluent C++, Arthur O'Dwyer, Andrzej Krzemienski |
+| 커뮤니티 | Reddit r/cpp, JetBrains CLion, Easyperf |
+
+피드를 추가/삭제하려면 `config.yaml`의 `feeds` 섹션을 수정하세요.
+
+## Discord 출력 예시
+
+```
+📰 C++ Daily Digest - 2025년 01월 01일
+
+[C++20 코루틴을 활용한 비동기 파일 I/O 구현]
+이 기사는 C++20 코루틴을 사용하여 비동기 파일 읽기/쓰기를
+구현하는 방법을 설명합니다.
+
+코드: 비동기 파일 읽기를 위한 awaitable 타입 구현
+사용 기능: co_await, co_return, std::coroutine_handle
+표준: C++20
+```
+
+## 라이선스
+
+MIT License
