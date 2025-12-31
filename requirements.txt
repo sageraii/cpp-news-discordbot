@@ -1,0 +1,21 @@
+# C++ Daily Digest - Python 의존성
+
+# RSS 피드 파싱
+feedparser>=6.0.10
+
+# HTTP 요청
+requests>=2.31.0
+
+# YAML 설정 파일
+pyyaml>=6.0.1
+
+# HTML 파싱 (코드 추출용)
+beautifulsoup4>=4.12.0
+
+# 환경 변수 로드 (선택적)
+python-dotenv>=1.0.0
+
+# LLM 클라이언트
+openai>=1.0.0
+anthropic>=0.18.0
+google-generativeai>=0.4.0

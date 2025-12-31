@@ -1,0 +1,26 @@
+다음 C++ 관련 기사를 한국어로 번역하고 요약해주세요.
+
+## 입력
+- 제목: {title}
+- 원문 요약: {description}
+- 출처: {source}
+{code_section}
+
+## 출력 형식 (JSON)
+{{
+  "translated_title": "한국어 번역 제목",
+  "summary": "2-3문장의 한국어 요약",
+  "code_analysis": {{
+    "purpose": "코드의 핵심 목적 (코드가 있는 경우)",
+    "cpp_features": ["사용된 C++ 기능들"],
+    "notable_patterns": "주목할 패턴 또는 null"
+  }} 또는 null,
+  "category_hint": "standard|performance|concurrency|modern|tools|safety|general",
+  "cpp_version": "C++20" 또는 null
+}}
+
+## 주의사항
+- 기술적 정확성을 유지하세요.
+- C++ 키워드와 약어는 원문 유지 규칙을 따르세요.
+- 코드가 있으면 코드 분석을 포함하고, 없으면 code_analysis는 null로 설정하세요.
+- 요약에 코드의 핵심 내용도 반영하세요.

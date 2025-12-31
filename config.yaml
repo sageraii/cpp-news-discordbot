@@ -1,0 +1,75 @@
+# config.yaml - C++ Daily Digest 통합 설정
+
+# =============================================================================
+# LLM API 설정
+# =============================================================================
+llm:
+  enabled: true
+  provider: google                # openai | anthropic | google | openrouter | ollama | custom
+  model: gemini-2.0-flash-exp
+  # base_url: https://api.openai.com/v1    # custom 엔드포인트 사용 시
+  temperature: 0.3
+  max_tokens: 800                 # 코드 분석 포함 시 늘림
+  timeout: 30
+  retry_count: 3
+  retry_delay: 2
+  rate_limit_delay: 1
+
+# =============================================================================
+# 번역 및 요약 설정
+# =============================================================================
+translation:
+  target_language: ko
+  summary_style: concise
+  summary_length: 2-3
+  translate_title: true
+  preserve_technical_terms: true
+
+# =============================================================================
+# C++ 코드 분석 설정
+# =============================================================================
+code_analysis:
+  enabled: true                   # 코드 분석 활성화
+  min_code_lines: 3               # 최소 코드 줄 수
+  max_code_length: 2000           # 최대 코드 길이 (토큰 절약)
+  include_in_summary: true        # 요약에 코드 분석 포함
+
+# =============================================================================
+# RSS 피드 목록
+# =============================================================================
+feeds:
+  # 공식 및 표준
+  ISO C++: https://isocpp.org/blog/rss
+  Herb Sutter: https://herbsutter.com/feed/
+  Microsoft C++ Team: https://devblogs.microsoft.com/cppblog/feed/
+  Barry Revzin: https://brevzin.github.io/feed.xml
+
+  # 고품질 기술 블로그
+  C++ Stories: https://www.cppstories.com/index.xml
+  Modernes C++: https://www.modernescpp.com/index.php/feed
+  Fluent C++: https://www.fluentcpp.com/feed/
+  Arthur O'Dwyer: https://quuxplusone.github.io/blog/feed.xml
+  Andrzej Krzemienski: https://akrzemi1.wordpress.com/feed/
+
+  # 커뮤니티 및 도구
+  Reddit r/cpp: https://www.reddit.com/r/cpp/top/.rss?t=day
+  JetBrains CLion: https://blog.jetbrains.com/clion/feed/
+  Easyperf: https://easyperf.net/feed.xml
+
+# =============================================================================
+# Discord 설정
+# =============================================================================
+discord:
+  embed_color: 0x0052CC
+  show_summary: true
+  show_code_analysis: true        # 코드 분석 결과 표시
+  show_original_title: false
+  max_articles_per_category: 5
+
+# =============================================================================
+# 스케줄 설정
+# =============================================================================
+schedule:
+  timezone: Asia/Seoul
+  hour: 9
+  lookback_hours: 24
