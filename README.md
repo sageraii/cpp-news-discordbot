@@ -1,5 +1,9 @@
 # C++ Daily Digest Bot
 
+[![C++ Daily Digest](https://github.com/sageraii/cpp-news-discordbot/actions/workflows/daily-digest.yml/badge.svg)](https://github.com/sageraii/cpp-news-discordbot/actions/workflows/daily-digest.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+
 C++ 관련 RSS 피드를 매일 수집하여 Discord 채널로 한국어 요약을 전송하는 봇입니다.
 
 ## 주요 기능
