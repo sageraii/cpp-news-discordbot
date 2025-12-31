@@ -8,9 +8,10 @@ C++ 관련 RSS 피드를 매일 수집하여 Discord 채널로 한국어 요약�
 
 ## 주요 기능
 
-- **RSS 피드 수집**: 12개의 C++ 관련 블로그 및 커뮤니티 피드
+- **RSS 피드 수집**: 16개의 C++ 관련 블로그 및 커뮤니티 피드
 - **AI 번역/요약**: LLM을 활용한 한국어 번역 및 요약 (C++ 전문 용어 처리)
 - **코드 분석**: 기사 내 C++ 코드 자동 추출 및 분석
+- **카테고리 분류**: 기사를 주제별로 자동 분류 (표준, 성능, 동시성 등)
 - **자동 실행**: GitHub Actions로 매일 오전 9시(KST) 자동 전송
 - **중복 방지**: 이미 전송한 기사는 다시 전송하지 않음
 
@@ -114,6 +115,33 @@ Actions 탭 → C++ Daily Digest → Run workflow
 | 커뮤니티 | Reddit r/cpp, JetBrains CLion, Easyperf, KDAB, Hacking C++ |
 
 피드를 추가/삭제하려면 `config.yaml`의 `feeds` 섹션을 수정하세요.
+
+## 카테고리 분류
+
+기사를 주제별로 자동 분류하여 Discord에 그룹화하여 전송할 수 있습니다.
+
+### 설정
+
+`config.yaml`에서 활성화:
+
+```yaml
+categorization:
+  enabled: true  # false로 설정하면 분류 없이 전송
+```
+
+### 카테고리 목록
+
+| 카테고리 | 설명 | 키워드 예시 |
+|----------|------|-------------|
+| 📋 표준 및 제안 | C++ 표준, WG21 제안 | c++23, c++26, proposal, wg21 |
+| ✨ 모던 C++ | 최신 C++ 기능 | ranges, concepts, modules, constexpr |
+| ⚡ 성능 최적화 | 성능 관련 | performance, optimization, simd, cache |
+| 🔄 동시성 | 멀티스레딩, 코루틴 | coroutine, thread, async, atomic |
+| 🛠️ 도구 및 빌드 | 컴파일러, 빌드 시스템 | cmake, clang, gcc, sanitizer |
+| 🛡️ 안전성 | 메모리 안전성 | safety, memory, undefined behavior |
+| 📰 일반 | 기타 | - |
+
+분류는 LLM의 category_hint 또는 키워드 매칭으로 자동 수행됩니다.
 
 ## Discord 출력 예시
 
