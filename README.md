@@ -105,13 +105,13 @@ Actions 탭 → C++ Daily Digest → Run workflow
     └── daily-digest.yml     # GitHub Actions 워크플로우
 ```
 
-## RSS 피드 목록
+## RSS 피드 목록 (18개)
 
 | 카테고리 | 피드 |
 |----------|------|
 | 공식 | ISO C++, Herb Sutter, Microsoft C++ Team, Barry Revzin |
-| 블로그 | C++ Stories, Modernes C++, Fluent C++, Arthur O'Dwyer, Andrzej Krzemienski |
-| 커뮤니티 | Reddit r/cpp, JetBrains CLion, Easyperf |
+| 블로그 | C++ Stories, Modernes C++, Fluent C++, Arthur O'Dwyer, Andrzej Krzemienski, Sandor Dargo, Lesley Lai, Shafik Yaghmour |
+| 커뮤니티 | Reddit r/cpp, JetBrains CLion, Easyperf, Meeting C++, KDAB, Hacking C++ |
 
 피드를 추가/삭제하려면 `config.yaml`의 `feeds` 섹션을 수정하세요.
 

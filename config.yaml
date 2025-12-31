@@ -50,11 +50,17 @@ feeds:
   Fluent C++: https://www.fluentcpp.com/feed/
   Arthur O'Dwyer: https://quuxplusone.github.io/blog/feed.xml
   Andrzej Krzemienski: https://akrzemi1.wordpress.com/feed/
+  Sandor Dargo: https://www.sandordargo.com/feed.xml
+  Lesley Lai: https://lesleylai.info/feed.xml
+  Shafik Yaghmour: https://shafik.github.io/feed.xml
 
   # 커뮤니티 및 도구
   Reddit r/cpp: https://www.reddit.com/r/cpp/top/.rss?t=day
   JetBrains CLion: https://blog.jetbrains.com/clion/feed/
   Easyperf: https://easyperf.net/feed.xml
+  Meeting C++: https://meetingcpp.com/mcpp/news/items.xml
+  KDAB: https://www.kdab.com/feed/
+  Hacking C++: https://hackingcpp.com/feed.xml
 
 # =============================================================================
 # Discord 설정
