@@ -125,6 +125,11 @@ class CPPDailyDigest:
         schedule_config = self.config.get("schedule", {})
         self.lookback_hours = schedule_config.get("lookback_hours", 24)
 
+        # 카테고리 분류 설정
+        cat_config = self.config.get("categorization", {})
+        self.categorization_enabled = cat_config.get("enabled", False)
+        self.categories = cat_config.get("categories", {})
+
     def _load_config(self, path: str) -> Dict:
         """YAML 설정 파일 로드"""
         config_path = Path(__file__).parent / path
@@ -147,6 +152,60 @@ class CPPDailyDigest:
         except FileNotFoundError:
             logger.warning(f"프롬프트 파일을 찾을 수 없습니다: {prompt_path}")
             return None
+
+    def _categorize_article(self, article: Dict, processed: Dict) -> str:
+        """기사를 카테고리로 분류
+
+        Args:
+            article: 원본 기사 정보
+            processed: LLM 처리된 기사 정보
+
+        Returns:
+            카테고리 키 (예: 'standard', 'performance', 'general')
+        """
+        if not self.categorization_enabled:
+            return "general"
+
+        # LLM이 제안한 카테고리 힌트 확인
+        category_hint = processed.get("category_hint", "")
+        if category_hint and category_hint in self.categories:
+            return category_hint
+
+        # 키워드 기반 분류
+        search_text = " ".join([
+            article.get("title", ""),
+            article.get("description", ""),
+            processed.get("translated_title", ""),
+            processed.get("summary", ""),
+        ]).lower()
+
+        for cat_key, cat_info in self.categories.items():
+            if cat_key == "general":
+                continue
+            keywords = cat_info.get("keywords", [])
+            for keyword in keywords:
+                if keyword.lower() in search_text:
+                    return cat_key
+
+        return "general"
+
+    def _group_by_category(self, articles: List[Dict]) -> Dict[str, List[Dict]]:
+        """기사들을 카테고리별로 그룹화
+
+        Args:
+            articles: (article, processed, embed) 튜플 리스트
+
+        Returns:
+            카테고리별로 그룹화된 딕셔너리
+        """
+        grouped = {}
+        for item in articles:
+            category = item.get("category", "general")
+            if category not in grouped:
+                grouped[category] = []
+            grouped[category].append(item)
+
+        return grouped
 
     def _load_state(self) -> Dict:
         """이전 상태 로드"""
@@ -362,8 +421,36 @@ class CPPDailyDigest:
             "timestamp": article.get("published") or datetime.now(timezone.utc).isoformat(),
         }
 
+    def _send_webhook(self, payload: Dict) -> bool:
+        """Discord 웹훅으로 페이로드 전송"""
+        try:
+            response = requests.post(
+                self.webhook_url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=30,
+            )
+
+            if response.status_code == 429:  # Rate limited
+                retry_after = response.json().get("retry_after", 5)
+                logger.warning(f"Rate limited. {retry_after}초 후 재시도...")
+                time.sleep(retry_after)
+                response = requests.post(
+                    self.webhook_url,
+                    json=payload,
+                    headers={"Content-Type": "application/json"},
+                    timeout=30,
+                )
+
+            response.raise_for_status()
+            return True
+
+        except requests.RequestException as e:
+            logger.error(f"Discord 전송 실패: {e}")
+            return False
+
     def send_to_discord(self, embeds: List[Dict]) -> bool:
-        """Discord로 메시지 전송"""
+        """Discord로 메시지 전송 (카테고리 미분류)"""
         if not embeds:
             logger.info("전송할 기사가 없습니다.")
             return True
@@ -380,36 +467,78 @@ class CPPDailyDigest:
 
             payload = {"content": content, "embeds": batch}
 
-            try:
-                response = requests.post(
-                    self.webhook_url,
-                    json=payload,
-                    headers={"Content-Type": "application/json"},
-                    timeout=30,
-                )
-
-                if response.status_code == 429:  # Rate limited
-                    retry_after = response.json().get("retry_after", 5)
-                    logger.warning(f"Rate limited. {retry_after}초 후 재시도...")
-                    time.sleep(retry_after)
-                    response = requests.post(
-                        self.webhook_url,
-                        json=payload,
-                        headers={"Content-Type": "application/json"},
-                        timeout=30,
-                    )
-
-                response.raise_for_status()
-                logger.info(f"Discord 전송 성공: {len(batch)}개 기사")
-
-                # Rate limiting
-                if i + 10 < len(embeds):
-                    time.sleep(1)
-
-            except requests.RequestException as e:
-                logger.error(f"Discord 전송 실패: {e}")
+            if not self._send_webhook(payload):
                 return False
 
+            logger.info(f"Discord 전송 성공: {len(batch)}개 기사")
+
+            # Rate limiting
+            if i + 10 < len(embeds):
+                time.sleep(1)
+
+        return True
+
+    def send_categorized_to_discord(self, categorized_articles: List[Dict]) -> bool:
+        """카테고리별로 그룹화하여 Discord로 전송
+
+        Args:
+            categorized_articles: category 키가 포함된 기사 딕셔너리 리스트
+
+        Returns:
+            성공 여부
+        """
+        if not categorized_articles:
+            logger.info("전송할 기사가 없습니다.")
+            return True
+
+        # 카테고리별로 그룹화
+        grouped = self._group_by_category(categorized_articles)
+
+        # 헤더 전송
+        today = datetime.now().strftime("%Y년 %m월 %d일")
+        header_payload = {"content": f"📰 **C++ Daily Digest** - {today}"}
+        if not self._send_webhook(header_payload):
+            return False
+        time.sleep(0.5)
+
+        # 카테고리 순서 정의
+        category_order = ["standard", "modern", "performance", "concurrency", "tools", "safety", "general"]
+
+        total_sent = 0
+        for cat_key in category_order:
+            if cat_key not in grouped:
+                continue
+
+            articles = grouped[cat_key]
+            if not articles:
+                continue
+
+            # 카테고리당 최대 기사 수 제한
+            articles = articles[:self.max_articles_per_category]
+
+            # 카테고리 이름 가져오기
+            cat_info = self.categories.get(cat_key, {})
+            cat_name = cat_info.get("name", f"📰 {cat_key}")
+
+            # 카테고리 헤더와 기사들 전송
+            embeds = [article["embed"] for article in articles]
+
+            # Discord는 한 번에 최대 10개 임베드 허용
+            for i in range(0, len(embeds), 10):
+                batch = embeds[i : i + 10]
+
+                # 첫 번째 배치에만 카테고리 헤더 추가
+                content = f"\n**{cat_name}** ({len(articles)}개)" if i == 0 else None
+
+                payload = {"content": content, "embeds": batch}
+
+                if not self._send_webhook(payload):
+                    return False
+
+                total_sent += len(batch)
+                time.sleep(1)  # Rate limiting
+
+        logger.info(f"Discord 전송 성공: {total_sent}개 기사 ({len(grouped)}개 카테고리)")
         return True
 
     def run(self):
@@ -423,7 +552,7 @@ class CPPDailyDigest:
             return
 
         # 2. 번역 및 요약
-        embeds = []
+        processed_articles = []
         state = self._load_state()
         sent_ids = set(state.get("sent_today", []))
 
@@ -434,7 +563,16 @@ class CPPDailyDigest:
                 logger.info(f"처리 중: {article['title'][:50]}...")
                 processed = self.translate_and_summarize(article)
                 embed = self.create_discord_embed(article, processed)
-                embeds.append(embed)
+
+                # 카테고리 분류
+                category = self._categorize_article(article, processed)
+
+                processed_articles.append({
+                    "article": article,
+                    "processed": processed,
+                    "embed": embed,
+                    "category": category,
+                })
                 sent_ids.add(article["id"])
 
                 # LLM API rate limiting
@@ -446,16 +584,21 @@ class CPPDailyDigest:
                 continue
 
         # 3. Discord 전송
-        if embeds:
-            # 카테고리당 최대 기사 수 제한
-            embeds = embeds[: self.max_articles_per_category * 7]  # 7개 카테고리 예상
+        if processed_articles:
+            if self.categorization_enabled:
+                # 카테고리별로 그룹화하여 전송
+                success = self.send_categorized_to_discord(processed_articles)
+            else:
+                # 기존 방식 (카테고리 미분류)
+                embeds = [item["embed"] for item in processed_articles]
+                embeds = embeds[: self.max_articles_per_category * 7]
+                success = self.send_to_discord(embeds)
 
-            success = self.send_to_discord(embeds)
             if success:
                 # 상태 업데이트
                 state["sent_today"] = list(sent_ids)
                 self._save_state(state)
-                logger.info(f"총 {len(embeds)}개 기사 전송 완료")
+                logger.info(f"총 {len(processed_articles)}개 기사 전송 완료")
             else:
                 logger.error("Discord 전송 실패")
         else:

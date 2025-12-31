@@ -61,6 +61,34 @@ feeds:
   Hacking C++: https://hackingcpp.com/feed.xml
 
 # =============================================================================
+# 카테고리 분류 설정
+# =============================================================================
+categorization:
+  enabled: true                   # 카테고리별 그룹화 활성화
+  categories:
+    standard:
+      name: "📋 표준 및 제안"
+      keywords: ["c++26", "c++23", "c++20", "standard", "proposal", "wg21", "iso", "p0", "p1", "p2", "n4"]
+    performance:
+      name: "⚡ 성능 최적화"
+      keywords: ["performance", "optimization", "benchmark", "simd", "vectorization", "cache", "profiling", "latency", "throughput"]
+    concurrency:
+      name: "🔄 동시성"
+      keywords: ["coroutine", "async", "thread", "concurrency", "parallel", "atomic", "mutex", "future", "co_await", "co_yield"]
+    modern:
+      name: "✨ 모던 C++"
+      keywords: ["ranges", "concepts", "modules", "constexpr", "consteval", "template", "lambda", "auto", "span", "optional", "variant"]
+    tools:
+      name: "🛠️ 도구 및 빌드"
+      keywords: ["compiler", "cmake", "clang", "gcc", "msvc", "vcpkg", "conan", "sanitizer", "debugger", "ide", "clion"]
+    safety:
+      name: "🛡️ 안전성"
+      keywords: ["safety", "memory", "undefined behavior", "ub", "lifetime", "dangling", "bounds", "leak"]
+    general:
+      name: "📰 일반"
+      keywords: []                # 기본 카테고리 (매칭 안 되면 여기로)
+
+# =============================================================================
 # Discord 설정
 # =============================================================================
 discord:
