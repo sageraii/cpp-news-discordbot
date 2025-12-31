@@ -1,3 +1,8 @@
+# Claude 관련 파일
+CLAUDE.md
+.claude/
+.claudeignore
+
 # 환경 변수 파일 (API 키 보호)
 .env
 .env.local
