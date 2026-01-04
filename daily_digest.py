@@ -112,6 +112,11 @@ class CPPDailyDigest:
         # 프롬프트 로드
         self.system_prompt = self._load_prompt("prompts/system.txt")
         self.translate_prompt_template = self._load_prompt("prompts/translate_summarize.txt")
+        self.batch_prompt_template = self._load_prompt("prompts/translate_summarize_batch.txt")
+
+        # 배치 처리 설정
+        llm_config = self.config.get("llm", {})
+        self.batch_size = llm_config.get("batch_size", 10)
 
         # 상태 파일 경로
         self.state_file = Path(__file__).parent / "sent_articles.json"
@@ -316,19 +321,120 @@ class CPPDailyDigest:
         logger.info(f"총 {len(articles)}개 기사 수집됨")
         return articles
 
+    def _prepare_article_for_batch(self, article: Dict) -> Dict:
+        """배치 처리를 위해 기사 정보를 준비"""
+        # 코드 추출
+        code_section = ""
+        if self.code_analyzer:
+            content = (article.get("description", "") or "") + (article.get("content", "") or "")
+            code_blocks = self.code_analyzer.extract_code_blocks(content)
+            if code_blocks:
+                code_text = self.code_analyzer.get_code_summary_prompt(code_blocks)
+                if code_text:
+                    code_section = code_text
+
+        return {
+            "title": article["title"],
+            "description": strip_html(article.get("description", "") or "")[:500],  # 토큰 절약
+            "source": article["source"],
+            "code_section": code_section[:1000] if code_section else "",  # 토큰 절약
+        }
+
+    def _create_fallback_result(self, article: Dict) -> Dict:
+        """LLM 실패 시 폴백 결과 생성"""
+        clean_desc = strip_html(article.get("description", "") or "")
+        return {
+            "translated_title": article["title"],
+            "summary": clean_desc[:300],
+            "code_analysis": None,
+            "category_hint": None,
+            "cpp_version": None,
+        }
+
+    def translate_and_summarize_batch(self, articles: List[Dict]) -> List[Dict]:
+        """여러 기사를 배치로 번역 및 요약 (API 호출 최적화)
+
+        Args:
+            articles: 기사 딕셔너리 리스트
+
+        Returns:
+            처리된 결과 리스트 (입력과 동일한 순서)
+        """
+        if not articles:
+            return []
+
+        # LLM 비활성화 시 폴백
+        if not self.llm_client:
+            return [self._create_fallback_result(article) for article in articles]
+
+        # 배치 프롬프트가 없으면 개별 처리로 폴백
+        if not self.batch_prompt_template:
+            logger.warning("배치 프롬프트 템플릿이 없어 개별 처리로 전환합니다.")
+            return [self.translate_and_summarize(article) for article in articles]
+
+        # 배치용 기사 정보 준비
+        articles_data = []
+        for idx, article in enumerate(articles):
+            prepared = self._prepare_article_for_batch(article)
+            prepared["index"] = idx
+            articles_data.append(prepared)
+
+        # JSON으로 직렬화
+        articles_json = json.dumps(articles_data, ensure_ascii=False, indent=2)
+
+        # 프롬프트 생성
+        prompt = self.batch_prompt_template.format(articles_json=articles_json)
+
+        try:
+            logger.info(f"배치 처리 중: {len(articles)}개 기사")
+            response = self.llm_client.generate(prompt=prompt, system_prompt=self.system_prompt)
+
+            # JSON 추출 (마크다운 코드블록 제거)
+            json_str = response.strip()
+            if json_str.startswith("```"):
+                lines = json_str.split("\n")
+                json_str = "\n".join(lines[1:])
+                if json_str.endswith("```"):
+                    json_str = json_str[:-3]
+                json_str = json_str.strip()
+
+            results = json.loads(json_str)
+
+            # 결과가 리스트가 아닌 경우 처리
+            if not isinstance(results, list):
+                logger.warning("배치 결과가 리스트가 아닙니다. 폴백 처리합니다.")
+                return [self._create_fallback_result(article) for article in articles]
+
+            # article_index 기준으로 정렬하여 원래 순서 보장
+            sorted_results = [None] * len(articles)
+            for result in results:
+                idx = result.get("article_index", -1)
+                if 0 <= idx < len(articles):
+                    sorted_results[idx] = result
+
+            # 누락된 결과는 폴백으로 채움
+            for idx, result in enumerate(sorted_results):
+                if result is None:
+                    logger.warning(f"기사 {idx} 결과 누락, 폴백 처리")
+                    sorted_results[idx] = self._create_fallback_result(articles[idx])
+
+            logger.info(f"배치 처리 완료: {len(articles)}개 기사")
+            return sorted_results
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"배치 JSON 파싱 실패: {e}")
+        except Exception as e:
+            logger.warning(f"배치 처리 실패: {e}")
+
+        # 배치 실패 시 폴백
+        return [self._create_fallback_result(article) for article in articles]
+
     def translate_and_summarize(self, article: Dict) -> Dict:
-        """기사 번역, 요약, 코드 분석"""
+        """단일 기사 번역, 요약, 코드 분석 (하위 호환성 유지)"""
 
         # LLM 비활성화 시 원문 반환 (HTML 태그 제거)
         if not self.llm_client:
-            clean_desc = strip_html(article.get("description", "") or "")
-            return {
-                "translated_title": article["title"],
-                "summary": clean_desc[:300],
-                "code_analysis": None,
-                "category_hint": None,
-                "cpp_version": None,
-            }
+            return self._create_fallback_result(article)
 
         # 코드 추출
         code_section = ""
@@ -342,14 +448,7 @@ class CPPDailyDigest:
 
         # 프롬프트 생성
         if not self.translate_prompt_template:
-            clean_desc = strip_html(article.get("description", "") or "")
-            return {
-                "translated_title": article["title"],
-                "summary": clean_desc[:300],
-                "code_analysis": None,
-                "category_hint": None,
-                "cpp_version": None,
-            }
+            return self._create_fallback_result(article)
 
         prompt = self.translate_prompt_template.format(
             title=article["title"],
@@ -380,14 +479,7 @@ class CPPDailyDigest:
             logger.warning(f"번역/요약 실패: {e}")
 
         # 폴백 (HTML 태그 제거)
-        clean_desc = strip_html(article.get("description", "") or "")
-        return {
-            "translated_title": article["title"],
-            "summary": clean_desc[:300],
-            "code_analysis": None,
-            "category_hint": None,
-            "cpp_version": None,
-        }
+        return self._create_fallback_result(article)
 
     def create_discord_embed(self, article: Dict, processed: Dict) -> Dict:
         """Discord Embed 생성"""
@@ -551,37 +643,56 @@ class CPPDailyDigest:
             logger.info("새로운 기사가 없습니다.")
             return
 
-        # 2. 번역 및 요약
+        # 2. 번역 및 요약 (배치 처리)
         processed_articles = []
         state = self._load_state()
         sent_ids = set(state.get("sent_today", []))
 
         rate_limit_delay = self.config.get("llm", {}).get("rate_limit_delay", 1)
 
-        for article in articles:
+        # 배치 단위로 처리 (API 호출 최적화)
+        for batch_start in range(0, len(articles), self.batch_size):
+            batch_end = min(batch_start + self.batch_size, len(articles))
+            batch_articles = articles[batch_start:batch_end]
+
+            logger.info(f"배치 처리 중: {batch_start + 1}-{batch_end}/{len(articles)}")
+
             try:
-                logger.info(f"처리 중: {article['title'][:50]}...")
-                processed = self.translate_and_summarize(article)
-                embed = self.create_discord_embed(article, processed)
+                # 배치로 번역/요약 처리 (API 1회 호출)
+                batch_results = self.translate_and_summarize_batch(batch_articles)
 
-                # 카테고리 분류
-                category = self._categorize_article(article, processed)
+                # 결과 처리
+                for article, processed in zip(batch_articles, batch_results):
+                    embed = self.create_discord_embed(article, processed)
+                    category = self._categorize_article(article, processed)
 
-                processed_articles.append({
-                    "article": article,
-                    "processed": processed,
-                    "embed": embed,
-                    "category": category,
-                })
-                sent_ids.add(article["id"])
+                    processed_articles.append({
+                        "article": article,
+                        "processed": processed,
+                        "embed": embed,
+                        "category": category,
+                    })
+                    sent_ids.add(article["id"])
 
-                # LLM API rate limiting
-                if self.llm_client:
+                # 다음 배치 전 rate limiting (Gemini 무료 플랜: RPM=10)
+                if batch_end < len(articles) and self.llm_client:
+                    logger.info(f"Rate limit 대기: {rate_limit_delay}초")
                     time.sleep(rate_limit_delay)
 
             except Exception as e:
-                logger.error(f"기사 처리 실패: {e}")
-                continue
+                logger.error(f"배치 처리 실패: {e}")
+                # 배치 실패 시 해당 배치의 기사들은 폴백 처리
+                for article in batch_articles:
+                    processed = self._create_fallback_result(article)
+                    embed = self.create_discord_embed(article, processed)
+                    category = self._categorize_article(article, processed)
+                    processed_articles.append({
+                        "article": article,
+                        "processed": processed,
+                        "embed": embed,
+                        "category": category,
+                    })
+                    sent_ids.add(article["id"])
 
         # 3. Discord 전송
         if processed_articles:

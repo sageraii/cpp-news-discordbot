@@ -9,11 +9,13 @@ llm:
   model: gemini-2.0-flash-exp
   # base_url: https://api.openai.com/v1    # custom 엔드포인트 사용 시
   temperature: 0.3
-  max_tokens: 800                 # 코드 분석 포함 시 늘림
-  timeout: 30
+  max_tokens: 8000                # 배치 처리를 위해 증가 (기사 10개 × ~800토큰)
+  timeout: 120                    # 배치 처리를 위해 증가 (10개 기사 처리 시간)
   retry_count: 3
-  retry_delay: 2
-  rate_limit_delay: 1
+  retry_delay: 5                  # 무료 플랜 rate limit 대응으로 증가
+  rate_limit_delay: 6             # RPM 10회 제한 → 6초 간격으로 안전하게 (10 req/min)
+  batch_size: 10                  # 한 번에 처리할 기사 수 (API 호출 최적화)
+  # Gemini 무료 플랜 제한: RPM=10, TPM=250K, RPD=~250
 
 # =============================================================================
 # 번역 및 요약 설정

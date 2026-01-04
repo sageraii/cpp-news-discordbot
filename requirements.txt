@@ -18,4 +18,4 @@ python-dotenv>=1.0.0
 # LLM 클라이언트
 openai>=1.0.0
 anthropic>=0.18.0
-google-generativeai>=0.4.0
+google-genai>=1.0.0

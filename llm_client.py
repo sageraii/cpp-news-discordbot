@@ -4,7 +4,7 @@ llm_client.py - 다중 LLM 프로바이더 지원 클라이언트
 지원 프로바이더:
 - OpenAI (gpt-4o, gpt-4o-mini)
 - Anthropic (claude-sonnet-4-20250514, claude-haiku-4-20250514)
-- Google (gemini-1.5-flash, gemini-1.5-pro)
+- Google (gemini-2.0-flash, gemini-2.5-flash) - google-genai SDK 사용
 - OpenRouter (다양한 모델)
 - Ollama (로컬 모델)
 - Custom (OpenAI 호환 엔드포인트)
@@ -116,35 +116,40 @@ class AnthropicClient(LLMClient):
 
 
 class GoogleClient(LLMClient):
-    """Google Gemini API 클라이언트"""
+    """Google Gemini API 클라이언트 (google-genai SDK 사용)"""
 
     def __init__(self, config: dict):
-        import google.generativeai as genai
+        from google import genai
 
         api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("LLM_API_KEY")
 
         if not api_key:
             raise ValueError("Google API 키가 설정되지 않았습니다.")
 
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(config.get("model", "gemini-1.5-flash"))
+        self.client = genai.Client(api_key=api_key)
+        self.model_name = config.get("model", "gemini-2.0-flash")
         self.temperature = config.get("temperature", 0.3)
         self.max_tokens = config.get("max_tokens", 800)
         self.retry_count = config.get("retry_count", 3)
         self.retry_delay = config.get("retry_delay", 2)
 
     def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
-        full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
+        from google.genai import types
 
         last_error = None
         for attempt in range(self.retry_count):
             try:
-                response = self.model.generate_content(
-                    full_prompt,
-                    generation_config={
-                        "temperature": self.temperature,
-                        "max_output_tokens": self.max_tokens,
-                    },
+                # GenerateContentConfig로 시스템 프롬프트와 설정 전달
+                config = types.GenerateContentConfig(
+                    system_instruction=system_prompt if system_prompt else None,
+                    temperature=self.temperature,
+                    max_output_tokens=self.max_tokens,
+                )
+
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=config,
                 )
                 return response.text
             except Exception as e:
