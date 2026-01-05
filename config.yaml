@@ -6,7 +6,7 @@
 llm:
   enabled: true
   provider: google                # openai | anthropic | google | openrouter | ollama | custom
-  model: gemini-2.0-flash
+  model: gemini-2.0-flash-exp
   # base_url: https://api.openai.com/v1    # custom 엔드포인트 사용 시
   temperature: 0.3
   max_tokens: 8000                # 배치 처리를 위해 증가 (기사 10개 × ~800토큰)
