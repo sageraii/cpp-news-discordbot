@@ -5,36 +5,19 @@
 # =============================================================================
 llm:
   enabled: true
-  provider: google                # openai | anthropic | google | openrouter | ollama | custom
-  model: gemini-2.5-flash-lite
+  provider: openai                # openai | anthropic | google | openrouter | ollama | custom
+  model: gpt-6-luna
   # base_url: https://api.openai.com/v1    # custom 엔드포인트 사용 시
   temperature: 0.3
-  max_tokens: 8000                # 배치 처리를 위해 증가 (기사 10개 × ~800토큰)
+  reasoning_effort: none          # 번역 전용: 추론 비활성화
+  max_completion_tokens: 8000     # 기사 10개의 번역 출력 상한; 실제 생성량만 과금
   timeout: 120                    # 배치 처리를 위해 증가 (10개 기사 처리 시간)
   retry_count: 3
-  retry_delay: 5                  # 무료 플랜 rate limit 대응으로 증가
-  rate_limit_delay: 6             # RPM 10회 제한 → 6초 간격으로 안전하게 (10 req/min)
+  retry_delay: 5                  # 일시적 API 오류 재시도 대기
+  rate_limit_delay: 1             # 배치 사이 대기 (계정 rate limit에 맞게 조정)
   batch_size: 10                  # 한 번에 처리할 기사 수 (API 호출 최적화)
-  # Gemini 무료 플랜 제한: RPM=10, TPM=250K, RPD=~250
-
-# =============================================================================
-# 번역 및 요약 설정
-# =============================================================================
-translation:
-  target_language: ko
-  summary_style: concise
-  summary_length: 2-3
-  translate_title: true
-  preserve_technical_terms: true
-
-# =============================================================================
-# C++ 코드 분석 설정
-# =============================================================================
-code_analysis:
-  enabled: true                   # 코드 분석 활성화
-  min_code_lines: 3               # 최소 코드 줄 수
-  max_code_length: 2000           # 최대 코드 길이 (토큰 절약)
-  include_in_summary: true        # 요약에 코드 분석 포함
+  # 한국어/전문 용어 규칙은 prompts/system.txt에서 관리.
+  # 제목과 RSS 설명 앞 500자만 번역. 요약/코드 분석/LLM 분류는 요청하지 않음.
 
 # =============================================================================
 # RSS 피드 목록
@@ -66,7 +49,7 @@ feeds:
 # 카테고리 분류 설정
 # =============================================================================
 categorization:
-  enabled: false                  # 카테고리별 그룹화 활성화
+  enabled: false                  # 선택적 키워드 기반 그룹화 (LLM 분류 아님)
   categories:
     standard:
       name: "📋 표준 및 제안"
@@ -95,15 +78,11 @@ categorization:
 # =============================================================================
 discord:
   embed_color: 0x0052CC
-  show_summary: true
-  show_code_analysis: true        # 코드 분석 결과 표시
-  show_original_title: false
   max_articles_per_category: 5
 
 # =============================================================================
 # 스케줄 설정
 # =============================================================================
 schedule:
-  timezone: Asia/Seoul
-  hour: 9
+  # 실행 시간은 .github/workflows/daily-digest.yml의 cron에서 설정 (KST 09:00).
   lookback_hours: 24

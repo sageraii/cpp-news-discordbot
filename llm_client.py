@@ -2,7 +2,7 @@
 llm_client.py - 다중 LLM 프로바이더 지원 클라이언트
 
 지원 프로바이더:
-- OpenAI (gpt-4o, gpt-4o-mini)
+- OpenAI (gpt-6-luna)
 - Anthropic (claude-sonnet-4-20250514, claude-haiku-4-20250514)
 - Google (gemini-2.0-flash, gemini-2.5-flash) - google-genai SDK 사용
 - OpenRouter (다양한 모델)
@@ -19,11 +19,22 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+class LLMError(ValueError):
+    """Log-safe application-authored configuration or response diagnostics only.
+
+    Messages must never contain API payloads, prompts, keys, or arbitrary config
+    values. SDK exceptions are not log-safe and must not be wrapped in this type.
+    """
+
+
 class LLMClient(ABC):
     """LLM 클라이언트 추상 베이스 클래스"""
 
     @abstractmethod
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def generate(
+        self, prompt: str, system_prompt: Optional[str] = None,
+        response_schema: Optional[dict] = None,
+    ) -> str:
         """프롬프트에 대한 응답 생성"""
         pass
 
@@ -34,47 +45,89 @@ class OpenAIClient(LLMClient):
     def __init__(self, config: dict):
         from openai import OpenAI
 
-        api_key = (
-            os.environ.get("OPENAI_API_KEY")
-            or os.environ.get("OPENROUTER_API_KEY")
-            or os.environ.get("LLM_API_KEY")
-        )
+        self.provider = config.get("provider", "openai").lower()
+        key_name = "OPENROUTER_API_KEY" if self.provider == "openrouter" else "OPENAI_API_KEY"
+        api_key = os.environ.get(key_name) or os.environ.get("LLM_API_KEY")
 
         if not api_key:
-            raise ValueError("OpenAI API 키가 설정되지 않았습니다.")
+            raise LLMError(f"{key_name} 또는 LLM_API_KEY가 설정되지 않았습니다.")
 
-        self.client = OpenAI(api_key=api_key, base_url=config.get("base_url"))
-        self.model = config.get("model", "gpt-4o-mini")
+        # 재시도는 아래 루프에서만 수행해 SDK와 중복되지 않게 한다.
+        self.client = OpenAI(api_key=api_key, base_url=config.get("base_url"), max_retries=0)
+        self.model = config.get("model", "gpt-6-luna" if self.provider == "openai" else "gpt-4o-mini")
         self.temperature = config.get("temperature", 0.3)
         self.max_tokens = config.get("max_tokens", 800)
+        self.max_completion_tokens = config.get("max_completion_tokens", self.max_tokens)
+        self.reasoning_effort = config.get(
+            "reasoning_effort",
+            "none" if self.provider == "openai" and self.model == "gpt-6-luna" else None,
+        )
         self.timeout = config.get("timeout", 30)
         self.retry_count = config.get("retry_count", 3)
         self.retry_delay = config.get("retry_delay", 2)
 
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def generate(
+        self, prompt: str, system_prompt: Optional[str] = None,
+        response_schema: Optional[dict] = None,
+    ) -> str:
+        from openai import APIConnectionError, APIStatusError
+
         messages = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
+        params = {"model": self.model, "messages": messages, "timeout": self.timeout}
+        if self.provider == "openai":
+            params["max_completion_tokens"] = self.max_completion_tokens
+            if self.reasoning_effort is not None:
+                params["reasoning_effort"] = self.reasoning_effort
+            if response_schema is not None:
+                params["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "article_translations", "strict": True, "schema": response_schema,
+                    },
+                }
+        else:
+            params["max_tokens"] = self.max_tokens
+        if self.provider != "openai" or self.reasoning_effort in (None, "none"):
+            params["temperature"] = self.temperature
 
-        last_error = None
-        for attempt in range(self.retry_count):
+        for attempt in range(max(1, self.retry_count)):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens,
-                    timeout=self.timeout,
+                response = self.client.chat.completions.create(**params)
+            except (APIConnectionError, APIStatusError) as error:
+                status = getattr(error, "status_code", None)
+                retryable = isinstance(error, APIConnectionError) or (
+                    status in (408, 409, 429) or (status is not None and 500 <= status < 600)
                 )
-                return response.choices[0].message.content
-            except Exception as e:
-                last_error = e
-                logger.warning(f"OpenAI API 호출 실패 (시도 {attempt + 1}/{self.retry_count}): {e}")
-                if attempt < self.retry_count - 1:
-                    time.sleep(self.retry_delay)
+                # API 오류 본문은 키나 입력을 포함할 수 있으므로 출력하지 않는다.
+                logger.warning(
+                    "OpenAI API 호출 실패 (시도 %s/%s, 유형=%s, status=%s)",
+                    attempt + 1, self.retry_count, type(error).__name__, status,
+                )
+                if not retryable or attempt + 1 >= self.retry_count:
+                    raise
+                time.sleep(self.retry_delay)
+                continue
 
-        raise last_error
+            if not response.choices:
+                raise LLMError("OpenAI 응답에 선택지가 없습니다.")
+            choice = response.choices[0]
+            if choice.finish_reason != "stop":
+                raise LLMError("OpenAI 응답이 정상적으로 완료되지 않았습니다.")
+            if choice.message.refusal:
+                raise LLMError("OpenAI가 요청을 거절했습니다.")
+            content = choice.message.content
+            if not isinstance(content, str) or not content.strip():
+                raise LLMError("OpenAI 응답 내용이 비어 있거나 문자열이 아닙니다.")
+            if response.usage is not None:
+                logger.info(
+                    "OpenAI token usage: prompt=%s completion=%s total=%s",
+                    response.usage.prompt_tokens, response.usage.completion_tokens,
+                    response.usage.total_tokens,
+                )
+            return content
 
 
 class AnthropicClient(LLMClient):
@@ -95,7 +148,10 @@ class AnthropicClient(LLMClient):
         self.retry_count = config.get("retry_count", 3)
         self.retry_delay = config.get("retry_delay", 2)
 
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def generate(
+        self, prompt: str, system_prompt: Optional[str] = None,
+        response_schema: Optional[dict] = None,
+    ) -> str:
         last_error = None
         for attempt in range(self.retry_count):
             try:
@@ -133,7 +189,10 @@ class GoogleClient(LLMClient):
         self.retry_count = config.get("retry_count", 3)
         self.retry_delay = config.get("retry_delay", 2)
 
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def generate(
+        self, prompt: str, system_prompt: Optional[str] = None,
+        response_schema: Optional[dict] = None,
+    ) -> str:
         from google.genai import types
 
         last_error = None
@@ -174,7 +233,10 @@ class OllamaClient(LLMClient):
         self.retry_count = config.get("retry_count", 3)
         self.retry_delay = config.get("retry_delay", 2)
 
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
+    def generate(
+        self, prompt: str, system_prompt: Optional[str] = None,
+        response_schema: Optional[dict] = None,
+    ) -> str:
         last_error = None
         for attempt in range(self.retry_count):
             try:
@@ -231,7 +293,7 @@ def create_llm_client(config: dict) -> Optional[LLMClient]:
 
     client_class = clients.get(provider)
     if not client_class:
-        raise ValueError(f"지원하지 않는 LLM 프로바이더: {provider}")
+        raise LLMError("지원하지 않는 LLM 프로바이더입니다.")
 
     logger.info(f"LLM 클라이언트 생성: {provider} ({config.get('model', 'default')})")
     return client_class(config)

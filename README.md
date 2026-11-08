@@ -4,158 +4,127 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
-C++ 관련 RSS 피드를 매일 수집하여 Discord 채널로 한국어 요약을 전송하는 봇입니다.
+C++ RSS 피드의 **제목과 설명을 한국어로 번역**하여 Discord에 전송합니다.
+기본 설정은 OpenAI `gpt-6-luna`, `reasoning_effort: none`입니다.
+모델에 요약·코드 분석·카테고리 추론을 요청하지 않습니다.
 
-## 주요 기능
+## 처리 범위
 
-- **RSS 피드 수집**: 16개의 C++ 관련 블로그 및 커뮤니티 피드
-- **AI 번역/요약**: LLM을 활용한 한국어 번역 및 요약 (C++ 전문 용어 처리)
-- **코드 분석**: 기사 내 C++ 코드 자동 추출 및 분석
-- **카테고리 분류**: 기사를 주제별로 자동 분류 (표준, 성능, 동시성 등)
-- **자동 실행**: GitHub Actions로 매일 오전 9시(KST) 자동 전송
-- **중복 방지**: 이미 전송한 기사는 다시 전송하지 않음
+```text
+RSS 수집 → 중복/게시 상한 적용 → 제목·설명 번역 → 응답 검증 → Discord 게시 → 상태 저장
+```
 
-## 지원 LLM 프로바이더
+- 16개 피드에서 최근 24시간 기사를 수집합니다. 발행일이 없는 기사는 제외하지 않습니다.
+- 번역 입력은 제목과 **HTML을 제거한 RSS 설명의 앞 500자**입니다. 원문 페이지 전체를 가져오거나 번역하지 않습니다.
+- 기본적으로 기사 10개를 한 API 요청에 넣습니다. 이는 OpenAI Batch API가 아닌 일반 Chat Completions 호출입니다.
+- 기본 게시 상한은 35개입니다. 선택적 키워드 분류를 켜면 카테고리당 5개입니다. 상한은 유료 번역 전에 적용합니다.
+- 번역 결과의 JSON 구조, 기사 번호, 개수, 필수 문자열을 검증합니다. 실패하면 영어 원문으로 대신 게시하지 않고 실행을 실패 처리합니다.
+- Discord 메시지는 임베드 개수와 전체 텍스트 길이에 따라 나눕니다. [Discord 제한](https://docs.discord.com/developers/resources/message#embed-limits)
+- GitHub Actions 실행 시각은 매일 **09:00 KST**로 예약되어 있습니다. 실제 시작 시각은 GitHub 실행 대기 상황에 따라 늦어질 수 있습니다.
 
-| 프로바이더 | 모델 예시 | 비고 |
-|------------|-----------|------|
-| OpenAI | `gpt-4o`, `gpt-4o-mini` | 안정적, 범용 |
-| Anthropic | `claude-sonnet-4-20250514` | C++ 이해도 높음 |
-| Google | `gemini-2.0-flash-exp` | 무료 티어 있음 |
-| OpenRouter | 다양한 모델 | 여러 모델 통합 |
-| Ollama | `llama3`, `mistral` | 무료, 로컬 전용 |
+## GitHub Actions 설정
 
-## 설치 및 실행
+저장소의 [Settings → Secrets and variables → Actions](https://github.com/sageraii/cpp-news-discordbot/settings/secrets/actions)에 다음 **Repository secrets**를 등록합니다.
 
-### 1. 의존성 설치
+| Secret 이름 | 값 |
+|---|---|
+| `DISCORD_WEBHOOK_URL` | 게시할 Discord 채널의 웹훅 URL |
+| `OPENAI_API_KEY` | 해당 모델을 사용할 수 있는 OpenAI API 키 |
+
+워크플로우에는 `${{ secrets.OPENAI_API_KEY }}` → `OPENAI_API_KEY` 환경 변수 연결이 이미 있습니다.
+기존 `GOOGLE_API_KEY`만으로는 OpenAI를 호출할 수 없습니다. 키는 코드·커밋·대화창에 넣지 마세요.
+`LLM_API_KEY`도 기존 호환용으로 지원하지만, 기본 설정에는 `OPENAI_API_KEY`를 권장합니다.
+
+변경사항과 Secret을 준비한 다음 기본 브랜치에 반영하면 예약 실행에 적용됩니다.
+수동 실행은 **Actions → C++ Daily Digest → Run workflow**이며, 실제 API 비용과 Discord 게시가 발생합니다.
+예약은 `.github/workflows/daily-digest.yml`의 `0 0 * * *`(UTC)로 관리합니다.
+워크플로우는 오프라인 테스트가 통과한 뒤에만 봇을 실행합니다.
+
+## 로컬 설치와 실행
+
+Python 3.11 이상에서 실행합니다.
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
+# 처음 설정할 때만 복사합니다. 기존 .env를 덮어쓰지 마세요.
+test -f .env || cp .env.example .env
 ```
 
-### 2. 환경 변수 설정
-
-`.env.example`을 `.env`로 복사하고 값을 설정합니다:
+`.env`에 `DISCORD_WEBHOOK_URL`과 `OPENAI_API_KEY`를 입력합니다.
+CLI 실행 시에만 `.env`를 읽으며, 이미 설정된 환경 변수는 덮어쓰지 않습니다.
 
 ```bash
-cp .env.example .env
+# 오프라인 회귀 테스트: 키 불필요, API/RSS/Discord 네트워크 호출 없음
+python -B -m unittest discover -s tests -v
+
+# 실제 RSS 수집, 유료 번역 및 Discord 게시
+python daily_digest.py
 ```
 
-```env
-# 필수
-DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/xxxxx/yyyyy
-
-# LLM API 키 (프로바이더에 따라 선택)
-GOOGLE_API_KEY=your_api_key
-# 또는
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-```
-
-### 3. LLM 프로바이더 설정
-
-`config.yaml`에서 사용할 LLM 프로바이더를 설정합니다:
+## 모델 및 출력 설정
 
 ```yaml
 llm:
   enabled: true
-  provider: google  # openai | anthropic | google | openrouter | ollama
-  model: gemini-2.0-flash-exp
+  provider: openai
+  model: gpt-6-luna
+  reasoning_effort: none
+  temperature: 0.3
+  max_completion_tokens: 8000
+  batch_size: 10
+  timeout: 120
+  retry_count: 3
+  retry_delay: 5
+  rate_limit_delay: 1
 ```
 
-### 4. 로컬 실행
+OpenAI에는 strict JSON Schema를 전달합니다. reasoning을 켜면 `temperature`는 전송하지 않습니다.
+OpenAI SDK 자체 재시도는 끄고, 연결/타임아웃 및 HTTP 408·409·429·5xx 오류만 설정 횟수 내에서 재시도합니다.
+`retry_count: 3`은 최초 요청을 포함한 총 3회입니다. 인증 오류나 잘못된 응답은 즉시 실패합니다.
+출력 토큰 한도 초과도 실패하므로, 필요하면 `batch_size`를 줄이거나 출력 상한을 조정하세요.
+모델 사양은 [공식 OpenAI 문서](https://developers.openai.com/api/docs/models/gpt-6-luna)를 참고하세요.
 
-```bash
-python daily_digest.py
-```
+기존 Anthropic, Google, OpenRouter, Ollama, custom 클라이언트는 유지합니다.
+전환 시 해당 제공자의 키·모델·`max_tokens`를 따로 설정해야 합니다.
+다른 제공자는 프롬프트 기반 JSON을 반환하고 동일한 애플리케이션 검증을 거칩니다.
+`llm.enabled: false`는 명시적으로 번역 없이 원문을 게시하는 모드입니다.
 
-## GitHub Actions 설정
+## 피드 및 분류
 
-### 1. Repository Secrets 설정
+`config.yaml`의 `feeds`에서 피드를 추가·삭제할 수 있습니다.
+ISO C++, Herb Sutter, Microsoft C++ Team, Barry Revzin, C++ Stories,
+Modernes C++, Fluent C++, Arthur O'Dwyer, Andrzej Krzemienski, Sandor Dargo,
+Shafik Yaghmour, Reddit r/cpp, JetBrains CLion, Easyperf, KDAB, Hacking C++가 설정되어 있습니다.
 
-GitHub 저장소 → Settings → Secrets and variables → Actions에서 설정:
+`categorization.enabled: true`이면 **원문 제목·RSS 설명의 키워드**로 그룹화합니다.
+기본 카테고리는 표준, 모던 C++, 성능, 동시성, 도구, 안전성, 일반입니다.
+LLM 분류나 코드 분석은 사용하지 않습니다.
 
-| Secret 이름 | 설명 |
-|-------------|------|
-| `DISCORD_WEBHOOK_URL` | Discord 웹훅 URL |
-| `GOOGLE_API_KEY` | Google Gemini API 키 (또는 다른 LLM 키) |
+## 오류와 중복 처리의 한계
 
-### 2. 수동 실행
-
-Actions 탭 → C++ Daily Digest → Run workflow
-
-### 3. 자동 실행
-
-매일 오전 9시(KST)에 자동 실행됩니다.
+- 모든 선택 기사의 번역이 검증된 뒤에만 게시합니다. 번역 실패 시 게시·완료 상태 저장을 하지 않습니다.
+- 전송 실패나 상태 저장 실패는 CLI 종료 코드 1로 Actions에 전달합니다.
+- 성공하면 게시한 기사 ID만 `sent_articles.json`에 저장하고 Actions cache로 다음 실행에 전달합니다.
+- 상태는 실행 환경의 날짜가 바뀌면 초기화하는 기존 방식입니다. 영구 중복 방지는 아닙니다.
+- 일부 메시지 게시 후 실패, 동시 실행 또는 cache 유실 시 재실행에서 중복 게시될 수 있습니다. 메시지별 영구 전송 기록은 구현하지 않았습니다.
+- 오프라인 테스트는 요청 형식과 오류 처리를 검증합니다. 계정의 모델 접근 권한, 실제 번역 품질과 Discord 전달은 별도 실행으로 확인해야 합니다.
 
 ## 프로젝트 구조
 
-```
-├── daily_digest.py          # 메인 실행 파일
-├── llm_client.py            # LLM API 클라이언트
-├── code_analyzer.py         # C++ 코드 추출/분석
-├── config.yaml              # 설정 파일 (피드, LLM, Discord)
-├── requirements.txt         # Python 의존성
+```text
+├── daily_digest.py                    # 수집·선택·번역 검증·게시
+├── llm_client.py                      # 제공자별 API 클라이언트
+├── config.yaml                       # 피드·모델·출력 설정
 ├── prompts/
-│   ├── system.txt           # 시스템 프롬프트
-│   ├── translate_summarize.txt  # 번역/요약 프롬프트
-│   └── code_analysis.txt    # 코드 분석 프롬프트
-└── .github/workflows/
-    └── daily-digest.yml     # GitHub Actions 워크플로우
+│   ├── system.txt                    # 번역 및 용어 규칙
+│   └── translate_summarize_batch.txt  # 파일명 유지, 번역 전용 계약
+├── tests/                            # unittest, 모의 HTTP
+└── .github/workflows/daily-digest.yml # 예약 및 수동 실행
 ```
 
-## RSS 피드 목록 (16개)
-
-| 카테고리 | 피드 |
-|----------|------|
-| 공식 | ISO C++, Herb Sutter, Microsoft C++ Team, Barry Revzin |
-| 블로그 | C++ Stories, Modernes C++, Fluent C++, Arthur O'Dwyer, Andrzej Krzemienski, Sandor Dargo, Shafik Yaghmour |
-| 커뮤니티 | Reddit r/cpp, JetBrains CLion, Easyperf, KDAB, Hacking C++ |
-
-피드를 추가/삭제하려면 `config.yaml`의 `feeds` 섹션을 수정하세요.
-
-## 카테고리 분류
-
-기사를 주제별로 자동 분류하여 Discord에 그룹화하여 전송할 수 있습니다.
-
-### 설정
-
-`config.yaml`에서 활성화:
-
-```yaml
-categorization:
-  enabled: true  # false로 설정하면 분류 없이 전송
-```
-
-### 카테고리 목록
-
-| 카테고리 | 설명 | 키워드 예시 |
-|----------|------|-------------|
-| 📋 표준 및 제안 | C++ 표준, WG21 제안 | c++23, c++26, proposal, wg21 |
-| ✨ 모던 C++ | 최신 C++ 기능 | ranges, concepts, modules, constexpr |
-| ⚡ 성능 최적화 | 성능 관련 | performance, optimization, simd, cache |
-| 🔄 동시성 | 멀티스레딩, 코루틴 | coroutine, thread, async, atomic |
-| 🛠️ 도구 및 빌드 | 컴파일러, 빌드 시스템 | cmake, clang, gcc, sanitizer |
-| 🛡️ 안전성 | 메모리 안전성 | safety, memory, undefined behavior |
-| 📰 일반 | 기타 | - |
-
-분류는 LLM의 category_hint 또는 키워드 매칭으로 자동 수행됩니다.
-
-## Discord 출력 예시
-
-```
-📰 C++ Daily Digest - 2025년 01월 01일
-
-[C++20 코루틴을 활용한 비동기 파일 I/O 구현]
-이 기사는 C++20 코루틴을 사용하여 비동기 파일 읽기/쓰기를
-구현하는 방법을 설명합니다.
-
-코드: 비동기 파일 읽기를 위한 awaitable 타입 구현
-사용 기능: co_await, co_return, std::coroutine_handle
-표준: C++20
-```
+`code_analyzer.py`와 `prompts/code_analysis.txt`는 기존 파일로 남아 있지만 현재 봇 경로에서는 사용하지 않습니다.
 
 ## 라이선스
 
